@@ -14,9 +14,8 @@ void *unfree_thread(void *data)
     char *unfree;
     int i;
 
-    pthread_detach(pthread_self());
     prctl(PR_SET_NAME, "unfree_thr");
-    i = 10000;
+    i = 10;
     while (i--) {
         unfree = (char *)malloc(15);
         bzero(unfree, 15);
@@ -25,8 +24,9 @@ void *unfree_thread(void *data)
 
     while (1) {
         unfree = malloc(10);
-        sleep(1999);
+        sleep(10);
     }
+
 
     return NULL;
 }
@@ -53,8 +53,12 @@ int main(int argc, char *argv[])
         return -1;
     }
 
+    i = 10;
+    while (i--) {
+        sleep(1);
+    }
 
-    for (i = 0; i < 100; i++) {
+    for (i = 0; i < 10; i++) {
         unfree = (char *)calloc(1, 10);
         strcpy(unfree, "unfree");
     }
