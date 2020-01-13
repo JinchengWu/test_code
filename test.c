@@ -1,72 +1,77 @@
 /* test C Language api */
 
 #include <stdio.h>
-#include <string.h>
-#include <stdlib.h>
-#include <mcheck.h>
-#include <signal.h>
-#include <pthread.h>
 #include <unistd.h>
+#include <pthread.h>
 #include <sys/prctl.h>
+#include <sys/syscall.h>
 
-void *unfree_thread(void *data)
+static pthread_rwlock_t g_rw_lck = PTHREAD_RWLOCK_INITIALIZER;
+static int g_mem;
+
+static void *read_handle(void *data)
 {
-    char *unfree;
-    int i;
+    pid_t tid;
 
-    prctl(PR_SET_NAME, "unfree_thr");
-    i = 10;
-    while (i--) {
-        unfree = (char *)malloc(15);
-        bzero(unfree, 15);
-        strcpy(unfree, "thread unfree.");
-    }
-
+    tid = syscall(SYS_gettid);
+    prctl(PR_SET_NAME, __func__);
+    pthread_detach(pthread_self());
     while (1) {
-        unfree = malloc(10);
-        sleep(10);
+        sleep(1);
+        printf("%d %s, try get mem rw_lck\r\n", tid, __func__);
+        pthread_rwlock_rdlock(&g_rw_lck);
+        printf("%s, get rw_lck, read mem: %d\n", __func__, g_mem);
+        pthread_rwlock_unlock(&g_rw_lck);
     }
-
 
     return NULL;
 }
 
-void signal_handler(int sig)
+static void *write_handle(void *data)
 {
-    muntrace();
-    exit(0);
+    prctl(PR_SET_NAME, __func__);
+    pthread_detach(pthread_self());
+    while (1) {
+        sleep(1);
+        printf("%s, get rw_lck mutex\r\n", __func__);
+        pthread_rwlock_wrlock(&g_rw_lck);
+        sleep(3);
+        g_mem++;
+        printf("%s, write free rw_lck mutex\r\n", __func__);
+        pthread_rwlock_unlock(&g_rw_lck);
+    }
+
+    return NULL;
 }
 
 int main(int argc, char *argv[])
 {
-    char *unfree;
-    pthread_t tid;
-    int i, ret;
+    pthread_t tid1, tid2, tid3;
+    int ret;
 
-    mtrace();
-
-    signal(SIGINT, signal_handler);
-
-    ret = pthread_create(&tid, NULL, unfree_thread, NULL);
+    ret = pthread_rwlock_init(&g_rw_lck, NULL);
     if (ret != 0) {
-        printf("unfree thread create fail.");
+        printf("rwlock init\r\n");
         return -1;
     }
-
-    i = 10;
-    while (i--) {
+    ret = pthread_create(&tid1, NULL, read_handle, NULL);
+    if (ret != 0) {
+        printf("pthread create fail\r\n");
+        return -1;
+    }
+    ret = pthread_create(&tid2, NULL, read_handle, NULL);
+    if (ret != 0) {
+        printf("pthread create fail\r\n");
+        return -1;
+    }
+    ret = pthread_create(&tid3, NULL, write_handle, NULL);
+    if (ret != 0) {
+        printf("pthread create fail\r\n");
+        return -1;
+    }
+    while (1) {
         sleep(1);
     }
 
-    for (i = 0; i < 10; i++) {
-        unfree = (char *)calloc(1, 10);
-        strcpy(unfree, "unfree");
-    }
-
-    pthread_join(tid, NULL);
-
-    muntrace();
-
-
-    return 0;
+    return -1;
 }
