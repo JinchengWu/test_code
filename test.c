@@ -1,77 +1,133 @@
 /* test C Language api */
 
 #include <stdio.h>
-#include <unistd.h>
-#include <pthread.h>
-#include <sys/prctl.h>
-#include <sys/syscall.h>
+#include <stdlib.h>
 
-static pthread_rwlock_t g_rw_lck = PTHREAD_RWLOCK_INITIALIZER;
-static int g_mem;
+typedef struct hash_node_s {
+    int key;
+    int data; /* usually, we save the data by a pointer. */
+    struct hash_node_s *next;
+} hash_node_t;
 
-static void *read_handle(void *data)
+typedef struct hash_table_s {
+    struct hash_node_s **hash_sets;
+    int n; /* hash table count */
+} hash_table_t;
+
+static hash_table_t *hash_create(int n)
 {
-    pid_t tid;
+    hash_table_t *tbl;
 
-    tid = syscall(SYS_gettid);
-    prctl(PR_SET_NAME, __func__);
-    pthread_detach(pthread_self());
-    while (1) {
-        sleep(1);
-        printf("%d %s, try get mem rw_lck\r\n", tid, __func__);
-        pthread_rwlock_rdlock(&g_rw_lck);
-        printf("%s, get rw_lck, read mem: %d\n", __func__, g_mem);
-        pthread_rwlock_unlock(&g_rw_lck);
+    tbl = calloc(1, sizeof(hash_table_t));
+    if (tbl == NULL) {
+        return NULL;
+    }
+    tbl->hash_sets = calloc(n, sizeof(hash_node_t *));
+    if (tbl->hash_sets == NULL) {
+        free(tbl);
+        return NULL;
+    }
+    tbl->n = n;
+
+    return tbl;
+}
+
+static int hash_key(hash_table_t *tbl, int key)
+{
+    int index;
+    
+    index = key % tbl->n;
+    if (index < 0) {
+        index += tbl->n;
+    }
+    
+    return index;
+}
+
+static int hash_insert(hash_table_t *tbl, int key, int data)
+{
+    hash_node_t *bucket_head, *entry;
+    int index;
+
+    /* usually we need a hash algorithm for generate index. */
+    index = hash_key(tbl, key); 
+    bucket_head = tbl->hash_sets[index];
+    entry = calloc(1, sizeof(hash_node_t));
+    if (entry == NULL) {
+        return -1;
+    }
+    entry->data = data;
+    entry->key = key;
+    entry->next = bucket_head;
+    tbl->hash_sets[index] = entry;
+
+    return 0;
+}
+
+static hash_node_t *hash_find(hash_table_t *tbl, int key)
+{
+    hash_node_t *bucket_head, *entry;
+    int index;
+
+    index = hash_key(tbl, key); /* usually we need a hash algorithm for generate index. */
+    bucket_head = tbl->hash_sets[index];
+    entry = bucket_head;
+    while (entry) {
+        if (entry->key == key) {
+            return entry;
+        }
+        entry = entry->next;
     }
 
     return NULL;
 }
 
-static void *write_handle(void *data)
+static int *sum(int *nums, int nums_size, int target, int *return_size)
 {
-    prctl(PR_SET_NAME, __func__);
-    pthread_detach(pthread_self());
-    while (1) {
-        sleep(1);
-        printf("%s, get rw_lck mutex\r\n", __func__);
-        pthread_rwlock_wrlock(&g_rw_lck);
-        sleep(3);
-        g_mem++;
-        printf("%s, write free rw_lck mutex\r\n", __func__);
-        pthread_rwlock_unlock(&g_rw_lck);
+    int i, tmp, *ret;
+    hash_table_t *tbl;
+    hash_node_t *node;
+
+    tbl = hash_create(nums_size);
+    if (tbl == NULL) {
+        *return_size = 0;
+        return NULL;
     }
+    ret = calloc(1, sizeof(int) * 2);
+    if (ret == NULL) {
+        *return_size = 0;
+        return NULL;
+        
+    }
+    *return_size = 2;
+    for (i = 0; i < nums_size; i++) {
+        tmp = target - nums[i];
+        node = hash_find(tbl, tmp);
+        if (node != NULL) {
+            ret[0] = node->data;
+            ret[1] = i;
+            return ret;
+        }
+        hash_insert(tbl, nums[i], i);
+    }
+    *return_size = 0;
+    free(ret);
 
     return NULL;
 }
 
 int main(int argc, char *argv[])
 {
-    pthread_t tid1, tid2, tid3;
-    int ret;
+    int arr[8] = {-3, 7, 11, 15, 16, 13, 9, 1};
+    int *ret_index, size;
 
-    ret = pthread_rwlock_init(&g_rw_lck, NULL);
-    if (ret != 0) {
-        printf("rwlock init\r\n");
-        return -1;
+    ret_index = sum(arr, 8, -2, &size);
+    printf("ret size: %d\r\n", size);
+    for (int i = 0; i < size; i++) {
+        printf("%d, ", ret_index[i]);
     }
-    ret = pthread_create(&tid1, NULL, read_handle, NULL);
-    if (ret != 0) {
-        printf("pthread create fail\r\n");
-        return -1;
-    }
-    ret = pthread_create(&tid2, NULL, read_handle, NULL);
-    if (ret != 0) {
-        printf("pthread create fail\r\n");
-        return -1;
-    }
-    ret = pthread_create(&tid3, NULL, write_handle, NULL);
-    if (ret != 0) {
-        printf("pthread create fail\r\n");
-        return -1;
-    }
-    while (1) {
-        sleep(1);
-    }
+    printf("\r\n");
+    free(ret_index);
 
-    return -1;
+    return 0;
 }
